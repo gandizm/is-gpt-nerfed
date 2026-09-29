@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import datetime as dt
-import fcntl
 import glob
 import json
 import os
@@ -701,19 +700,48 @@ def save_session(st: dict) -> None:
     write_json(session_path(st["sid"]), st)
 
 
+def acquire_lock(fh) -> None:
+    """Exclusive lock on a lock file: fcntl on POSIX, a byte-range lock on Windows."""
+    if os.name == "nt":
+        import msvcrt
+        fh.seek(0)
+        for _ in range(100):  # hooks run under a 5-20 s timeout; never block indefinitely
+            try:
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                return
+            except OSError:
+                time.sleep(0.05)
+        return
+    import fcntl
+    fcntl.flock(fh, fcntl.LOCK_EX)
+
+
+def release_lock(fh) -> None:
+    if os.name == "nt":
+        import msvcrt
+        try:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+        return
+    import fcntl
+    fcntl.flock(fh, fcntl.LOCK_UN)
+
+
 @contextlib.contextmanager
 def locked_session(sid: str):
     """Load-modify-save under an exclusive file lock (hooks and background workers touch the same file)."""
     ensure_dirs()
     lock_path = session_path(sid) + ".lock"
     with open(lock_path, "a+") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        acquire_lock(lock)
         try:
             st = load_session(sid)
             yield st
             save_session(st)
         finally:
-            fcntl.flock(lock, fcntl.LOCK_UN)
+            release_lock(lock)
 
 
 def all_sessions() -> list[dict]:
