@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sys
-from nerfed_launcher import load_cli
+from nerfed_launcher import load_cli, restore_backend_streams
 
 
 if __name__ == "__main__":
+    if sys.argv[1:]:
+        restore_backend_streams()
     cli = load_cli()
     args = sys.argv[1:]
     # Frozen backend workers must not open another desktop panel.

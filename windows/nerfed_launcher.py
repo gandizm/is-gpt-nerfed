@@ -53,6 +53,29 @@ import zipfile  # noqa: F401
 PLUGIN_RELATIVE = Path("skills") / "is-gpt-nerfed" / "scripts" / "nerfed"
 
 
+def restore_backend_streams() -> None:
+    """A windowed frozen worker still needs Codex's inherited JSON pipes."""
+    if os.name != "nt":
+        return
+    import msvcrt
+    get_handle = ctypes.windll.kernel32.GetStdHandle
+    get_handle.restype = ctypes.c_void_p
+    for name, handle_id, mode, flags in (("stdin", -10, "r", os.O_RDONLY),
+                                         ("stdout", -11, "w", os.O_WRONLY),
+                                         ("stderr", -12, "w", os.O_WRONLY)):
+        if getattr(sys, name) is not None:
+            continue
+        handle = get_handle(handle_id)
+        try:
+            if not handle or handle == ctypes.c_void_p(-1).value:
+                raise OSError("No inherited pipe")
+            fd = msvcrt.open_osfhandle(handle, flags)
+            stream = os.fdopen(fd, mode, encoding="utf-8", errors="replace")
+        except OSError:
+            stream = open(os.devnull, mode, encoding="utf-8")
+        setattr(sys, name, stream)
+
+
 def bundled_plugin_root() -> Path:
     configured = os.environ.get("PLUGIN_ROOT")
     if configured:
@@ -66,8 +89,28 @@ def bundled_plugin_root() -> Path:
         target = ledger / "plugin-bundle"
         try:
             target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copytree(source, target, dirs_exist_ok=True,
-                            ignore=shutil.ignore_patterns("__pycache__"))
+            # Do not overwrite platform-specific hook commands on every launch.
+            digest = hashlib.sha256()
+            for item in sorted(source.rglob("*")):
+                if item.is_file() and "__pycache__" not in item.parts:
+                    digest.update(item.relative_to(source).as_posix().encode())
+                    digest.update(item.read_bytes())
+            stamp = target / ".bundle-sha256"
+            signature = digest.hexdigest()
+            if not stamp.is_file() or stamp.read_text() != signature:
+                shutil.copytree(source, target, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__"))
+                stamp.write_text(signature, encoding="utf-8")
+            marketplace = ledger / ".agents" / "plugins" / "marketplace.json"
+            marketplace.parent.mkdir(parents=True, exist_ok=True)
+            marketplace.write_text(json.dumps({
+                "name": "is-gpt-nerfed",
+                "interface": {"displayName": "is-gpt-nerfed"},
+                "plugins": [{"name": "is-gpt-nerfed",
+                             "source": {"source": "local", "path": "./plugin-bundle"},
+                             "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+                             "category": "Developer Tools"}],
+            }, indent=2), encoding="utf-8")
         except OSError as exc:
             raise SystemExit(f"cannot prepare the bundled plugin at {target}: {exc}") from exc
         return target

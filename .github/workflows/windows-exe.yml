@@ -45,7 +45,9 @@ jobs:
       - name: Run Windows regression suite
         shell: pwsh
         run: |
+          $env:NERFED_FROZEN_UI_TEST = (Resolve-Path ".\dist\is-gpt-nerfed-ui.exe").Path
           python -W ignore -m unittest discover -s tests
+          if ($LASTEXITCODE -ne 0) { throw "Windows regression suite failed" }
           .\dist\is-gpt-nerfed.exe selftest
           python -m py_compile windows\ui.py windows\ui_launcher.py windows\nerfed_launcher.py
           $env:QT_QPA_PLATFORM = "offscreen"

@@ -2925,7 +2925,7 @@ def cmd_setup(args) -> int:
             run([cb, "plugin", "remove", f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"])
         rc2, out2 = run([cb, "plugin", "add", f"{PLUGIN_NAME}@{MARKETPLACE_NAME}"])
         print(f"  plugin add → rc={rc2} {out2[:300]}")
-        ok_cli = rc2 == 0 or plugin_enabled_in_config()
+        ok_cli = rc == 0 and rc2 == 0
         # A running Codex app keeps the hook definitions it loaded, which point at the previous cache directory.
         # Keep every earlier version path resolvable (as a symlink to the new copy) so its hooks do not fail and
         # block tool calls until the app reloads.
@@ -2939,21 +2939,16 @@ def cmd_setup(args) -> int:
                         print(f"  kept previous version path {v} → {VERSION} for the running Codex app")
                     except OSError as e:
                         print(f"  could not link {v}: {e}")
-            # Fallback the hook command uses when PLUGIN_ROOT is stale. It points at the marketplace source (the
-            # checkout or the app bundle), which survives version bumps; Codex deletes old cache directories.
-            stable = os.path.join(NERFED_HOME, "plugin")
-            source = current if os.sep + "plugins" + os.sep + "cache" + os.sep in PLUGIN_ROOT else PLUGIN_ROOT
-            try:
-                if os.path.islink(stable) or os.path.exists(stable):
-                    os.remove(stable) if os.path.islink(stable) else shutil.rmtree(stable)
-                os.symlink(source, stable)
-            except OSError as e:
-                # Symlinks need developer mode or elevation on Windows; a plain copy serves the same purpose.
-                try:
-                    shutil.copytree(source, stable, ignore=shutil.ignore_patterns("__pycache__"))
-                    print(f"  copied the plugin to {stable} (symlink unavailable: {e})")
-                except OSError as copy_error:
-                    print(f"  could not update {stable}: {copy_error}")
+    # The fallback is required even when Codex chooses another cache version
+    # directory or CLI registration fails. No Windows symlink privileges needed.
+    stable = os.path.join(NERFED_HOME, "plugin")
+    try:
+        if not os.path.islink(stable):
+            shutil.copytree(PLUGIN_ROOT, stable, dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            print(f"  copied fallback plugin to {stable}")
+    except OSError as e:
+        print(f"  could not update fallback plugin: {e}")
     if not ok_cli:
         print("falling back to manual registration in ~/.codex/config.toml")
         text = config_toml_text()
@@ -3061,6 +3056,8 @@ def cmd_doctor(args) -> int:
         posix = hook_commands_look_posix(text)
         slash = lambda s: re.sub(r"[\\/]+", "/", s).lower()  # json.dumps doubles the backslashes of Windows paths
         absolute = slash(os.path.join(HERE, "nerfed")) in slash(text)
+        if getattr(sys, "frozen", False):
+            absolute = absolute or slash(sys.executable) in slash(text)
         form = "${PLUGIN_ROOT}, never blocking when the file is missing" if posix else \
             "absolute paths (the Windows form)" if absolute else "neither ${PLUGIN_ROOT} nor an absolute path"
         check(posix or absolute, f"hook commands locate the plugin through {form}",
