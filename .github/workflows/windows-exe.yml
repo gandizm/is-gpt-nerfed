@@ -1,0 +1,62 @@
+name: Windows executable
+
+on:
+  push:
+    branches:
+      - main
+      - windows-exe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tool
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build executable
+        shell: pwsh
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onefile
+          --name is-gpt-nerfed --add-data "plugin;plugin"
+          windows/nerfed_launcher.py
+
+      - name: Run Windows regression suite
+        shell: pwsh
+        run: |
+          python -W ignore -m unittest discover -s tests
+          .\dist\is-gpt-nerfed.exe selftest
+
+      - name: Package artifact
+        shell: pwsh
+        run: |
+          $stage = "dist\package"
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item "dist\is-gpt-nerfed.exe" "$stage\is-gpt-nerfed.exe"
+          Copy-Item "LICENSE" "$stage\LICENSE"
+          @"
+          Run is-gpt-nerfed.exe from PowerShell or Command Prompt.
+          The first command copies the bundled Codex plugin into your local Codex data directory.
+          Example: .\is-gpt-nerfed.exe setup
+          "@ | Set-Content "$stage\README-Windows.txt" -Encoding utf8
+          Compress-Archive -Path "$stage\*" -DestinationPath "dist\is-gpt-nerfed-windows.zip" -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-gpt-nerfed-windows-${{ github.sha }}
+          path: dist/is-gpt-nerfed-windows.zip
+          if-no-files-found: error
+          retention-days: 14

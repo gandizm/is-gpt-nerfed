@@ -802,6 +802,7 @@ class SnapshotReportTests(unittest.TestCase):
 
     def test_update_install_swaps_the_app_bundle(self):
         import hashlib, plistlib, zipfile
+        from pathlib import Path
         base = os.path.join(TMP, "update-test"); os.makedirs(base, exist_ok=True)
 
         def fake_app(root, version):
@@ -821,8 +822,10 @@ class SnapshotReportTests(unittest.TestCase):
                     z.write(full, os.path.relpath(full, os.path.dirname(staged)))
         with open(zip_path + ".sha256", "w") as f:
             f.write(hashlib.sha256(open(zip_path, "rb").read()).hexdigest() + "  IsGPTNerfed-99.0.0.zip\n")
+        # Build a valid file URI on both POSIX and Windows (``file://C:\\...`` is not a
+        # valid Windows URI and makes urllib resolve an empty local path).
         dgc.write_json(dgc.UPDATE_PATH, {"checked": dgc.iso(), "latest": "99.0.0", "url": "https://example.test/rel",
-                                         "asset_url": "file://" + zip_path, "sha256_url": "file://" + zip_path + ".sha256", "error": None})
+                                         "asset_url": Path(zip_path).as_uri(), "sha256_url": Path(zip_path + ".sha256").as_uri(), "error": None})
         backups = os.path.join(base, "trash"); os.makedirs(backups)
         code, out = run_cli(["update-install", "--app", installed, "--backup-dir", backups, "--no-launch"])
         self.assertEqual(code, 0, out)
