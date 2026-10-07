@@ -12,6 +12,8 @@ import contextlib
 import io
 import json
 import os
+import subprocess
+import time
 from pathlib import Path
 import sys
 import threading
@@ -34,6 +36,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QScrollArea,
     QSizePolicy,
     QSpinBox,
@@ -125,26 +128,27 @@ def localize_widgets(root: QWidget) -> None:
 
 
 class Backend:
-    """Serialize calls into the existing CLI and keep its stdout out of the UI."""
+    """Use independent CLI processes so a probe cannot block status refresh."""
 
     def __init__(self, cli: Any):
         self.cli = cli
-        self._lock = threading.Lock()
 
     def call(self, args: list[str]) -> tuple[int, str, str]:
-        with self._lock:
-            stdout, stderr = io.StringIO(), io.StringIO()
-            code = 0
-            try:
-                with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                    result = self.cli.main(args)
-                    code = int(result or 0)
-            except SystemExit as exc:
-                code = int(exc.code or 0) if isinstance(exc.code, int) else 1
-            except BaseException:
-                code = 1
-                stderr.write(traceback.format_exc())
-            return code, stdout.getvalue(), stderr.getvalue()
+        command = [sys.executable]
+        if not getattr(sys, "frozen", False):
+            command.append(self.cli.DGC_BIN)
+        env = dict(os.environ)
+        env["PYTHONIOENCODING"] = "utf-8"
+        # Detached UI probes must not inherit the current assistant's sandbox.
+        env = {k: v for k, v in env.items() if not k.startswith("CODEX_SANDBOX")}
+        try:
+            result = subprocess.run(command + args, capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace", env=env,
+                                    timeout=3600 if args[:1] == ["worker"] else 120,
+                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            return result.returncode, result.stdout, result.stderr
+        except Exception:
+            return 1, "", traceback.format_exc()
 
 
 class BackendTask(QThread):
@@ -270,6 +274,15 @@ class MainWindow(QMainWindow):
         self.tasks: list[BackendTask] = []
         self.refreshing = False
         self.installing = False
+        self.pending_probes: dict[str, float] = {}
+        self.progress_labels: dict[str, QLabel] = {}
+        self.available_models: list[dict[str, Any]] = []
+        self.models_requested = False
+        self.selected_model = ""
+        self.selected_effort = ""
+        self.selected_queries = 1
+        self.operation_feedback = ""
+        self.expanded_reports: set[str] = set()
         self.setWindowTitle(tr("Is GPT nerfed?"))
         self.setMinimumSize(420, 600)
         self.resize(480, 780)
@@ -279,6 +292,9 @@ class MainWindow(QMainWindow):
         localize_widgets(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
+        self.elapsed_timer = QTimer(self)
+        self.elapsed_timer.timeout.connect(self._update_elapsed)
+        self.elapsed_timer.start(1000)
         if auto_refresh:
             self.timer.start(8000)
             QTimer.singleShot(0, self.refresh)
@@ -434,6 +450,9 @@ class MainWindow(QMainWindow):
             self.message.setText(tr("The backend returned invalid snapshot JSON."))
             return
         self.render_snapshot()
+        if not self.models_requested and value(value(self.snapshot, "install", {}), "codex_found"):
+            self.models_requested = True
+            self.start_task(["models"], self._models_done)
 
     def render_snapshot(self) -> None:
         snap = self.snapshot or {}
@@ -462,6 +481,9 @@ class MainWindow(QMainWindow):
         self.footer.setText(tr("Last refresh: {}", f"v{value(snap, 'version', '?')} · {value(snap, 'generated', '')}"))
 
         self._clear_body()
+        self.progress_labels.clear()
+        if self.operation_feedback:
+            self._add_empty(self.operation_feedback)
         if value(install, "codex_found") is False:
             self._add_setup("Codex was not found on this Windows installation.", "Install", self.install)
         elif value(install, "plugin_enabled") is False or value(hooks, "state") == "missing":
@@ -567,7 +589,9 @@ class MainWindow(QMainWindow):
         title.setWordWrap(True)
         top.addWidget(title, 1)
         probe = value(thread, "last_probe")
-        word = QLabel("Probing…" if value(thread, "probe_running") else probe_word(probe))
+        key = str(value(thread, "id"))
+        running = key in self.pending_probes or bool(value(thread, "probe_running"))
+        word = QLabel(tr("Probing…") if running else probe_word(probe))
         word.setObjectName("bad" if value(thread, "alert") else "warn" if value(thread, "suspicious") else "good")
         top.addWidget(word)
         layout.addLayout(top)
@@ -578,7 +602,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(meta)
         evidence = value(thread, "last_evidence")
         if evidence:
-            ev = QLabel(str(evidence))
+            ev = QLabel(backend_text(str(evidence)))
             ev.setObjectName("bad" if value(thread, "last_evidence_severity") == "hard" else "warn")
             ev.setWordWrap(True)
             layout.addWidget(ev)
@@ -587,6 +611,14 @@ class MainWindow(QMainWindow):
             detail.setObjectName("meta")
             detail.setWordWrap(True)
             layout.addWidget(detail)
+        failure = value(thread, "last_failure")
+        if failure:
+            error = QLabel(tr("Last attempt failed: {}", probe_detail(failure)))
+            error.setObjectName("warn")
+            error.setWordWrap(True)
+            layout.addWidget(error)
+        if running:
+            self._add_progress(layout, key, value(thread, "probe_note"))
         buttons = QHBoxLayout()
         buttons.addStretch()
         if value(thread, "halted"):
@@ -596,25 +628,64 @@ class MainWindow(QMainWindow):
         inspect = QToolButton()
         inspect.setText("Details")
         inspect.setObjectName("secondary")
-        inspect.clicked.connect(lambda _=False, t=thread: self.show_thread_details(t))
+        inspect.clicked.connect(lambda _=False, k=key: self._toggle_report(k))
         buttons.addWidget(inspect)
-        action = QPushButton("Probing…" if value(thread, "probe_running") else "Probe")
-        action.setEnabled(not value(thread, "probe_running"))
+        action = QPushButton(tr("Probing…" if running else "Retry" if failure else "Probe"))
+        action.setObjectName("probe-" + key)
+        action.setEnabled(not running)
         action.clicked.connect(lambda _=False, t=thread: self.probe_thread(t))
         buttons.addWidget(action)
         layout.addLayout(buttons)
+        self._add_report(layout, key, value(thread, "report_text", ""))
         self.body_layout.addWidget(frame)
 
     def _add_fresh(self, snap: dict[str, Any]) -> None:
         frame = self._card()
         layout = QVBoxLayout(frame)
         row = QHBoxLayout()
-        model = f"{value(snap, 'default_model', 'default model')} @ {value(snap, 'default_effort', '?')}"
+        running = "fresh" in self.pending_probes or bool(value(snap, "global_running"))
+        form = QFormLayout()
+        self.model_picker = QComboBox()
+        self.model_picker.setObjectName("model-picker")
+        self.model_picker.setEditable(True)
+        names = [m.get("model") or m.get("slug") or m.get("id") for m in self.available_models]
+        default = self.selected_model or str(value(snap, "default_model") or "")
+        for name in dict.fromkeys([default] + [n for n in names if n]):
+            if name:
+                self.model_picker.addItem(name)
+        self.model_picker.setCurrentText(default)
+        self.model_picker.currentTextChanged.connect(self._select_model)
+        self.model_picker.setEnabled(not running)
+        form.addRow(tr("Test model"), self.model_picker)
+        self.effort_picker = QComboBox()
+        self.effort_picker.setObjectName("effort-picker")
+        entry = next((m for m in self.available_models if (m.get("model") or m.get("slug") or m.get("id")) == default), {})
+        levels = [x.get("reasoningEffort") or x.get("effort") for x in entry.get("supportedReasoningEfforts", [])]
+        effort = self.selected_effort or str(value(snap, "default_effort") or "medium")
+        for level in dict.fromkeys([effort] + [x for x in levels if x] or ["medium"]):
+            self.effort_picker.addItem(level)
+        self.effort_picker.setCurrentText(effort)
+        self.effort_picker.currentTextChanged.connect(lambda text: setattr(self, "selected_effort", text))
+        self.effort_picker.setEnabled(not running)
+        form.addRow(tr("Reasoning effort"), self.effort_picker)
+        self.query_picker = QSpinBox()
+        self.query_picker.setObjectName("query-picker")
+        self.query_picker.setRange(1, 3)
+        self.query_picker.setValue(self.selected_queries)
+        self.query_picker.valueChanged.connect(lambda n: setattr(self, "selected_queries", n))
+        self.query_picker.setEnabled(not running)
+        form.addRow(tr("Samples"), self.query_picker)
+        layout.addLayout(form)
+        notice = QLabel(tr("Manual only. Uses the signed-in Codex account; no API key required. Sampling consumes usage."))
+        notice.setWordWrap(True)
+        notice.setObjectName("muted")
+        layout.addWidget(notice)
+        model = f"{default} @ {effort}"
         label = QLabel(model)
         label.setObjectName("meta")
         row.addWidget(label, 1)
         last = value(snap, "global_probe")
-        if value(snap, "global_running"):
+        if running:
             state = QLabel("Probing…")
             state.setObjectName("warn")
         elif last:
@@ -625,11 +696,24 @@ class MainWindow(QMainWindow):
             state.setObjectName("muted")
         state.setWordWrap(True)
         row.addWidget(state, 2)
-        button = QPushButton("Probe")
-        button.setEnabled(not value(snap, "global_running", False))
+        button = QPushButton(tr("Probing…" if running else "Retry" if value(snap, "global_failure") else "Probe"))
+        button.setObjectName("probe-fresh")
+        button.setEnabled(not running)
         button.clicked.connect(self.probe_fresh)
         row.addWidget(button)
         layout.addLayout(row)
+        if running:
+            self._add_progress(layout, "fresh")
+        if value(snap, "global_failure"):
+            error = QLabel(tr("Last attempt failed: {}", probe_detail(snap["global_failure"])))
+            error.setWordWrap(True)
+            error.setObjectName("warn")
+            layout.addWidget(error)
+        details = QToolButton()
+        details.setText(tr("Details"))
+        details.clicked.connect(lambda: self._toggle_report("fresh"))
+        layout.addWidget(details)
+        self._add_report(layout, "fresh", value(snap, "global_report_text", ""))
         self.body_layout.addWidget(frame)
 
     def _card(self) -> QFrame:
@@ -676,10 +760,91 @@ class MainWindow(QMainWindow):
         self.start_task(["hooks", "trust"], self._action_done)
 
     def probe_fresh(self) -> None:
-        self.start_task(["worker", "--fresh"], self._action_done)
+        if "fresh" in self.pending_probes:
+            return
+        model = self.model_picker.currentText().strip()
+        if not model:
+            self.operation_feedback = tr("Choose a model first")
+            self.render_snapshot()
+            return
+        args = ["worker", "--fresh", "--model", model, "--effort", self.effort_picker.currentText(),
+                "--queries", str(self.query_picker.value())]
+        self._start_probe("fresh", args)
 
     def probe_thread(self, thread: dict[str, Any]) -> None:
-        self.start_task(["worker", "--thread", str(value(thread, "id"))], self._action_done)
+        key = str(value(thread, "id"))
+        if key not in self.pending_probes:
+            self._start_probe(key, ["worker", "--thread", key, "--queries", str(self.selected_queries)])
+
+    def _start_probe(self, key: str, args: list[str]) -> None:
+        self.pending_probes[key] = time.monotonic()
+        self.operation_feedback = tr("Probe started. Waiting for Codex; this may take several minutes.")
+        self.timer.setInterval(2000)
+        self.render_snapshot()
+        def finished(result: tuple[int, str, str]) -> None:
+            self.pending_probes.pop(key, None)
+            if not self.pending_probes:
+                self.timer.setInterval(8000)
+            code, output, error = result
+            self.operation_feedback = tr("Probe completed. See the result below.") if code == 0 else tr("Probe failed: {}", (error or output or tr("Failed"))[-700:])
+            self.render_snapshot()
+            self.refresh()
+        self.start_task(args, finished)
+
+    def _add_progress(self, layout: QVBoxLayout, key: str, note: str | None = None) -> None:
+        bar = QProgressBar()
+        bar.setObjectName("progress-" + key)
+        bar.setRange(0, 0)  # Codex exposes no reliable completion percentage.
+        layout.addWidget(bar)
+        label = QLabel(backend_text(str(note)) if note else tr("Waiting for Codex response…"))
+        label.setWordWrap(True)
+        label.setProperty("stage", label.text())
+        self.progress_labels[key] = label
+        layout.addWidget(label)
+        self._update_elapsed()
+
+    def _update_elapsed(self) -> None:
+        for key, label in self.progress_labels.items():
+            elapsed = int(time.monotonic() - self.pending_probes.get(key, time.monotonic()))
+            label.setText(tr("{} · {} s elapsed", label.property("stage"), elapsed))
+
+    def _models_done(self, result: tuple[int, str, str]) -> None:
+        if result[0] == 0:
+            try:
+                self.available_models = json.loads(result[1]).get("data", [])
+            except (ValueError, AttributeError):
+                self.available_models = []
+            self.render_snapshot()
+
+    def _select_model(self, text: str) -> None:
+        self.selected_model = text
+        entry = next((m for m in self.available_models if (m.get("model") or m.get("slug") or m.get("id")) == text), {})
+        if entry:
+            self.selected_effort = entry.get("defaultReasoningEffort") or "medium"
+            if hasattr(self, "effort_picker"):
+                self.effort_picker.blockSignals(True)
+                self.effort_picker.clear()
+                for level in entry.get("supportedReasoningEfforts", []):
+                    self.effort_picker.addItem(level.get("reasoningEffort") or level.get("effort") or "medium")
+                self.effort_picker.setCurrentText(self.selected_effort)
+                self.effort_picker.blockSignals(False)
+
+    def _toggle_report(self, key: str) -> None:
+        if key in self.expanded_reports:
+            self.expanded_reports.remove(key)
+        else:
+            self.expanded_reports.add(key)
+        self.render_snapshot()
+
+    def _add_report(self, layout: QVBoxLayout, key: str, text: str) -> None:
+        if key in self.expanded_reports:
+            label = QLabel(text or tr("No probe yet"))
+            label.setWordWrap(True)
+            label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            layout.addWidget(label)
+            button = QPushButton(tr("Copy report"))
+            button.clicked.connect(lambda: QApplication.clipboard().setText(text))
+            layout.addWidget(button)
 
     def resume(self, thread: dict[str, Any]) -> None:
         self.start_task(["resume", "--thread", str(value(thread, "id"))], self._action_done)
@@ -732,6 +897,10 @@ class MainWindow(QMainWindow):
 
 
 def run_ui(cli: Any) -> int:
+    # Desktop first run is deliberately manual; preserve existing user settings.
+    if not Path(cli.CONFIG_PATH).exists():
+        cli.ensure_dirs()
+        cli.save_config({**cli.load_config(), "frequency": "manual", "fresh_frequency": "manual", "mode": "nudge"})
     app = QApplication.instance() or QApplication(sys.argv)
     app.setApplicationName("is-gpt-nerfed")
     app.setQuitOnLastWindowClosed(False)

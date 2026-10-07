@@ -74,6 +74,7 @@ SIDE_CMD = "/side $is-gpt-nerfed"
 APP_CODEX_BINS = [
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/Applications/Codex.app/Contents/Resources/codex",
+    "/usr/lib/chatgpt/resources/codex",
 ]
 if os.name == "nt":
     _local_app_data = os.environ.get("LOCALAPPDATA", "")
@@ -1637,18 +1638,43 @@ def cmd_worker(args) -> int:
         try:
             rec = run_fresh_probe(cfg, model=args.model, effort=args.effort, queries=args.queries, quiet=True)
             print(f"{iso()} fresh probe {rec['id']} verdict {rec.get('verdict')} ({rec.get('expected')} vs {rec.get('prediction')})")
+            return 0 if probe_row_valid(rec) else 1
         except SystemExit as e:
             print(f"{iso()} fresh worker aborted: {e}")
-        return 0
+            return 1
     try:
         rec = run_fork_probe(args.thread, cfg, queries=args.queries, quiet=True)
         print(f"{iso()} probe {rec['id']} session {args.thread} verdict {rec.get('verdict')} ({rec.get('expected')} vs {rec.get('prediction')})")
+        return 0 if probe_row_valid(rec) else 1
     except SystemExit as e:
         print(f"{iso()} worker aborted: {e}")
+        return 1
     finally:
         with locked_session(args.thread) as st:
             st["probe_running"] = None
     return 0
+
+
+def cmd_models(args) -> int:
+    """List account/runtime models without starting a model turn."""
+    cb = codex_bin(load_config())
+    if not cb:
+        print("Codex binary not found", file=sys.stderr)
+        return 1
+    client = cas.AppServer(cb)
+    try:
+        client.initialize()
+        data, cursor = [], None
+        for _ in range(10):
+            result = client.request("model/list", {"limit": 100, "cursor": cursor}) or {}
+            data.extend(result.get("data") or [])
+            cursor = result.get("nextCursor")
+            if not cursor:
+                break
+        print(json.dumps({"data": data}, ensure_ascii=False))
+        return 0
+    finally:
+        client.close()
 
 
 def cmd_tick(args) -> int:
@@ -3311,6 +3337,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--demo", action="store_true", help="synthetic English sample data (for screenshots)")
     s.add_argument("--hours", type=float, default=48)
     s.set_defaults(fn=cmd_snapshot)
+    s = sub.add_parser("models", help="list available Codex models without inference")
+    s.set_defaults(fn=cmd_models)
     s = sub.add_parser("config", help="show / get / set / init")
     s.add_argument("action", nargs="?", default="show")
     s.add_argument("key", nargs="?")

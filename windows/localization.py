@@ -16,6 +16,20 @@ from PySide6.QtCore import QLocale
 
 
 _EXTRA = {
+    "Never probed": "尚未检测",
+    "Test model": "检测模型",
+    "Reasoning effort": "推理强度",
+    "Samples": "采样次数",
+    "Choose a model first": "请先选择模型",
+    "Probing…": "检测中…",
+    "Retry": "重试",
+    "Manual only. Uses the signed-in Codex account; no API key required. Sampling consumes usage.": "仅手动检测，使用当前 Codex 登录账号，无需 API Key。采样会消耗额度。",
+    "Probe started. Waiting for Codex; this may take several minutes.": "检测已启动，正在等待 Codex，可能需要几分钟。",
+    "Probe completed. See the result below.": "检测已完成，请查看下方结果。",
+    "Probe failed: {}": "检测失败：{}",
+    "Last attempt failed: {}": "上次检测失败：{}",
+    "Waiting for Codex response…": "正在等待 Codex 响应…",
+    "{} · {} s elapsed": "{} · 已用时 {} 秒",
     "Is GPT nerfed?": "模型被降配了吗？",
     "Refresh": "刷新",
     "Details": "详情",
