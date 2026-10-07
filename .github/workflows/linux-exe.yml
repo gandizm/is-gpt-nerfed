@@ -1,0 +1,53 @@
+name: Linux executable
+
+on:
+  push:
+    branches:
+      - main
+      - windows-exe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tool
+        run: python -m pip install --upgrade pip -r linux/requirements.txt
+
+      - name: Build Linux desktop executable
+        run: bash linux/build.sh
+
+      - name: Run regression and frozen UI checks
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -W ignore -m unittest discover -s tests
+          ./dist-linux/is-gpt-nerfed-ui --smoke-test dist-linux/ui-smoke.json
+          ./dist-linux/is-gpt-nerfed-ui selftest
+          test -s dist-linux/ui-smoke.json
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist-linux/package
+          cp dist-linux/is-gpt-nerfed-ui dist-linux/package/
+          cp LICENSE README.md dist-linux/package/
+          tar -C dist-linux/package -czf dist-linux/is-gpt-nerfed-linux.tar.gz .
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: is-gpt-nerfed-linux-${{ github.sha }}
+          path: dist-linux/is-gpt-nerfed-linux.tar.gz
+          if-no-files-found: error
+          retention-days: 14
