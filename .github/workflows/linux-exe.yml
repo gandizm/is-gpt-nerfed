@@ -47,6 +47,8 @@ jobs:
           mkdir -p dist-linux/package
           cp dist-linux/is-gpt-nerfed-ui dist-linux/package/
           cp LICENSE README.md dist-linux/package/
+          cp README.zh-CN.md dist-linux/package/
+          printf '%s\n' 'Ubuntu 22.04+: install libxcb-cursor0 before launching the desktop UI.' > dist-linux/package/README-Linux.txt
           tar -C dist-linux/package -czf dist-linux/is-gpt-nerfed-linux.tar.gz .
 
       - name: Upload Linux artifact

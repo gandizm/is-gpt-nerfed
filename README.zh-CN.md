@@ -81,6 +81,18 @@ Windows 压缩包内有 `is-gpt-nerfed-ui.exe`：这是用 PySide6 移植的桌�
 如果面板仍显示 `Setup required` 或 Hook 为 `0/0`，先确认 Codex 已完全重启，再运行同目录下的
 `is-gpt-nerfed.exe doctor` 查看原因。Windows 界面会跟随 Windows 显示语言：中文系统显示简体中文，其他语言显示英文；文案和布局复用上游 macOS 面板。
 
+### Ubuntu/Linux 桌面版
+
+Linux 版复用同一套 PySide6 面板和 CLI 后端。Ubuntu 22.04 首次运行打包的 `is-gpt-nerfed-ui`
+前需要安装 Qt 的 X11 光标库：
+
+```bash
+sudo apt install libxcb-cursor0
+```
+
+没有桌面显示时可用 `QT_QPA_PLATFORM=offscreen` 做启动自检；主动检测仍使用当前已登录的 Codex 账号，
+不需要单独的 API Key。Linux 构建脚本是 `linux/build.sh`，GitHub Actions 会同时执行 CLI、UI smoke 和 selftest。
+
 ## 使用
 
 macOS 界面随系统语言显示为英语或简体中文，暂不支持的语言会显示为英语。程序生成的证据说明、检测进度和错误提示也会翻译。你自己的会话标题、模型名称、`high / xhigh / max` 等推理级别，以及无法识别的外部错误内容保持原样。本地记录、CLI 输出、通知和 ModelTrace 已校准的检测提示词不受界面语言影响。

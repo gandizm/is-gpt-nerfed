@@ -96,6 +96,20 @@ Codex completely and run `is-gpt-nerfed.exe doctor` from the same folder. The Wi
 display language (Simplified Chinese on Chinese Windows, English otherwise) and reuses the upstream macOS panel wording
 and layout.
 
+### Ubuntu/Linux desktop build
+
+The Linux build reuses the same PySide6 panel and CLI backend. On Ubuntu 22.04,
+install the Qt X11 cursor library before launching the packaged binary:
+
+```bash
+sudo apt install libxcb-cursor0
+```
+
+On a headless machine, use `QT_QPA_PLATFORM=offscreen` for a startup smoke test.
+Active probes use the signed-in Codex account and do not require a separate API key.
+The reproducible build is `linux/build.sh`; GitHub Actions runs the CLI, UI smoke,
+and self-tests for the Linux artifact.
+
 ## Using it
 
 The macOS interface supports English and Simplified Chinese, following the system's preferred languages with
