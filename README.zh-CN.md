@@ -79,7 +79,7 @@ Windows 压缩包内有 `is-gpt-nerfed-ui.exe`：这是用 PySide6 移植的桌�
 
 检测完成后，UI 可以继续放在托盘中运行。被动扫描不消耗回答；主动 Probe 会创建 3 个临时副本并消耗 3 次简短回答。
 如果面板仍显示 `Setup required` 或 Hook 为 `0/0`，先确认 Codex 已完全重启，再运行同目录下的
-`is-gpt-nerfed.exe doctor` 查看原因。当前 Windows 移植版界面暂时只有英文；上游 macOS 应用支持简体中文。
+`is-gpt-nerfed.exe doctor` 查看原因。Windows 界面会跟随 Windows 显示语言：中文系统显示简体中文，其他语言显示英文；文案和布局复用上游 macOS 面板。
 
 ## 使用
 

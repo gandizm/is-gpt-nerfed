@@ -43,6 +43,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+try:
+    from .localization import backend_text, is_chinese, tr
+except ImportError:  # PyInstaller loads ui.py as a top-level module.
+    from localization import backend_text, is_chinese, tr
+
 
 def value(obj: dict[str, Any] | None, key: str, default: Any = None) -> Any:
     return (obj or {}).get(key, default)
@@ -57,23 +62,27 @@ def pct(number: Any) -> str:
 
 def probe_word(probe: dict[str, Any] | None) -> str:
     if not probe:
-        return "Never probed"
+        return tr("Never probed")
     if value(probe, "status") == "failed" or value(probe, "verdict") == "INVALID":
-        return "Failed"
+        return tr("Failed")
     verdict = value(probe, "verdict") or "…"
     direction = value(probe, "direction")
     if verdict == "MISMATCH" and direction == "downgrade":
-        return "Downgrade"
+        return tr("Downgrade")
     if verdict == "MISMATCH" and direction == "upgrade":
-        return "Upgrade"
-    return {"MATCH": "Match", "SUSPICIOUS": "Suspicious", "UNLISTED": "Unlisted"}.get(verdict, verdict.title())
+        return tr("Upgrade")
+    return {
+        "MATCH": tr("Match"),
+        "SUSPICIOUS": tr("Suspicious"),
+        "UNLISTED": tr("Unlisted"),
+    }.get(verdict, verdict.title())
 
 
 def probe_detail(probe: dict[str, Any] | None) -> str:
     if not probe:
         return ""
     if value(probe, "status") == "failed":
-        return (value(probe, "errors") or ["no usable sample"])[0]
+        return tr((value(probe, "errors") or ["no usable sample"])[0])
     predicted = value(probe, "prediction") or "?"
     probability = pct(value(probe, "probability"))
     expected = value(probe, "expected")
@@ -81,9 +90,9 @@ def probe_detail(probe: dict[str, Any] | None) -> str:
     queries = value(probe, "queries")
     parts = [f"{predicted} {probability}"]
     if expected and expected != predicted:
-        parts.append(f"declared {expected}")
+        parts.append(tr("declared %@", expected))
     if used and queries and used < queries:
-        parts.append(f"{used}/{queries} answers")
+        parts.append(tr("%@ of %@ answers", used, queries))
     if value(probe, "finished_ago"):
         parts.append(str(value(probe, "finished_ago")))
     return " · ".join(parts)
@@ -98,6 +107,21 @@ def status_color(snapshot: dict[str, Any] | None) -> str:
     if value(overall, "upgraded", 0) > 0:
         return "#23834b"
     return "#2f6fed"
+
+
+def localize_widgets(root: QWidget) -> None:
+    if not is_chinese():
+        return
+    for widget in root.findChildren(QWidget):
+        if widget.objectName() == "title":
+            continue  # session titles are user data, not app-owned labels
+        if isinstance(widget, QComboBox):
+            for index in range(widget.count()):
+                widget.setItemText(index, tr(widget.itemText(index)))
+        elif isinstance(widget, (QLabel, QPushButton, QToolButton, QCheckBox)):
+            widget.setText(tr(widget.text()))
+    for action in root.findChildren(QAction):
+        action.setText(tr(action.text()))
 
 
 class Backend:
@@ -153,7 +177,7 @@ class SettingsDialog(QDialog):
         super().__init__(window)
         self.window = window
         self.snapshot = snapshot
-        self.setWindowTitle("Settings")
+        self.setWindowTitle(tr("Settings"))
         self.setMinimumWidth(520)
         self.setModal(True)
         self.controls: dict[str, Any] = {}
@@ -215,6 +239,7 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.save)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
+        localize_widgets(self)
 
     def _combo(self, form: QFormLayout, label: str, key: str, current: str, options: list[tuple[str, str]]) -> None:
         combo = QComboBox()
@@ -244,12 +269,13 @@ class MainWindow(QMainWindow):
         self.snapshot: dict[str, Any] | None = None
         self.tasks: list[BackendTask] = []
         self.refreshing = False
-        self.setWindowTitle("Is GPT nerfed?")
-        self.setMinimumSize(560, 700)
-        self.resize(620, 860)
+        self.setWindowTitle(tr("Is GPT nerfed?"))
+        self.setMinimumSize(420, 600)
+        self.resize(480, 780)
         self.setStyleSheet(self.stylesheet())
         self._build_shell()
         self._build_tray()
+        localize_widgets(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(8000)
@@ -396,14 +422,14 @@ class MainWindow(QMainWindow):
         self.refreshing = False
         code, output, error = result
         if code != 0:
-            self.message.setText((error or output or "snapshot failed").strip()[-500:])
-            self.status.setText("Backend error")
+            self.message.setText(tr((error or output or "snapshot failed").strip()[-500:]))
+            self.status.setText(tr("Backend error"))
             self.status.setStyleSheet("color: #c93636;")
             return
         try:
             self.snapshot = json.loads(output)
         except json.JSONDecodeError:
-            self.message.setText("The backend returned invalid snapshot JSON.")
+            self.message.setText(tr("The backend returned invalid snapshot JSON."))
             return
         self.render_snapshot()
 
@@ -413,7 +439,11 @@ class MainWindow(QMainWindow):
         install = value(snap, "install", {})
         hooks = value(snap, "hooks", {})
         color = status_color(snap)
-        self.face.setText("(ಠ_ಠ)" if value(overall, "downgraded", 0) else "(•_•)" if value(overall, "suspicious", 0) else "(•ᴗ•)")
+        self._set_face(
+            bool(value(overall, "downgraded", 0)),
+            bool(value(overall, "suspicious", 0)),
+            bool(value(overall, "running", 0)),
+        )
         self.face.setStyleSheet(f"color: {color};")
         setup_status = None
         if value(install, "codex_found") is False:
@@ -422,22 +452,23 @@ class MainWindow(QMainWindow):
             setup_status = ("Setup required", "#c77700")
         elif value(hooks, "state") == "untrusted":
             setup_status = ("Trust hooks required", "#c77700")
-        self.status.setText(setup_status[0] if setup_status else str(value(overall, "message", "all clear")))
+        headline = setup_status[0] if setup_status else backend_text(str(value(overall, "message", "all clear")))
+        self.status.setText(tr(headline))
         self.status.setStyleSheet(f"color: {setup_status[1] if setup_status else color};")
         self.message.setText(self._status_detail(snap))
         self.hooks.setText(self._hooks_text(snap))
-        self.footer.setText(f"v{value(snap, 'version', '?')} · Last refresh {value(snap, 'generated', '')}")
+        self.footer.setText(tr("Last refresh: {}", f"v{value(snap, 'version', '?')} · {value(snap, 'generated', '')}"))
 
         self._clear_body()
         if value(install, "codex_found") is False:
-            self._add_setup("Codex was not found on this Windows installation.", None)
+            self._add_setup("Codex was not found on this Windows installation.", "Install", self.install)
         elif value(install, "plugin_enabled") is False or value(hooks, "state") == "missing":
             self._add_setup("The plugin is not registered with Codex yet. Install it and trust its hooks.", "Install", self.install)
         elif value(hooks, "state") == "untrusted":
             self._add_setup("Codex has not trusted the plugin hooks yet.", "Trust hooks", self.trust_hooks)
 
         threads = [t for t in value(snap, "threads", []) if value(t, "model") != "codex-auto-review"]
-        self._add_section("Active sessions", f"{len(threads)} in 48 h")
+        self._add_section("Active sessions", tr("%@ in 48 h", len(threads)))
         if not threads:
             self._add_empty("No Codex sessions in the last 48 hours.")
         else:
@@ -447,6 +478,21 @@ class MainWindow(QMainWindow):
         self._add_section("Fresh session", f"{value(snap, 'default_model', 'default model')} @ {value(snap, 'default_effort', '?')}")
         self._add_fresh(snap)
         self.body_layout.addStretch()
+        localize_widgets(self)
+
+    def _set_face(self, alert: bool, warn: bool, running: bool) -> None:
+        filename = "face-alert.png" if alert else "face-warn.png" if warn else "face-ok.png"
+        roots = []
+        if getattr(sys, "frozen", False):
+            roots.append(Path(getattr(sys, "_MEIPASS", "")) / "resources")
+        roots.append(Path(__file__).resolve().parents[1] / "macos" / "Resources")
+        asset = next((root / filename for root in roots if (root / filename).is_file()), None)
+        if asset:
+            self.face.setText("")
+            self.face.setPixmap(QPixmap(str(asset)).scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self.face.setPixmap(QPixmap())
+            self.face.setText("(ಠ_ಠ)" if alert else "(•_•)" if warn else "(•o•)" if running else "(•ᴗ•)")
 
     def _status_detail(self, snap: dict[str, Any]) -> str:
         account = value(snap, "account", {})
@@ -455,18 +501,18 @@ class MainWindow(QMainWindow):
             bits.append(str(value(account, "label")))
         last = value(snap, "last_verdict")
         if last:
-            bits.append(f"Last probe: {probe_word(last)} · {probe_detail(last)}")
-        return " · ".join(bits) or "The Windows panel shares the same ledger as the CLI."
+            bits.append(f"{tr('Last probe')} · {probe_word(last)} · {probe_detail(last)}")
+        return " · ".join(bits) or tr("The Windows panel shares the same ledger as the CLI.")
 
     def _hooks_text(self, snap: dict[str, Any]) -> str:
         hooks = value(snap, "hooks", {})
         state = value(hooks, "state")
         if state == "trusted":
-            return f"Hooks trusted {value(hooks, 'trusted', 0)}/{value(hooks, 'total', 0)}"
+            return tr("Hooks trusted {} / {}", value(hooks, "trusted", 0), value(hooks, "total", 0))
         if state == "untrusted":
-            return "Hooks are not trusted by Codex"
+            return tr("Hooks are not trusted by Codex")
         if state == "missing":
-            return "Codex does not list this plugin's hooks yet"
+            return tr("Codex does not list this plugin's hooks yet")
         return ""
 
     def _add_setup(self, text: str, button: str | None, action: Callable[[], None] | None = None) -> None:
@@ -488,7 +534,7 @@ class MainWindow(QMainWindow):
 
     def _add_section(self, title: str, trailing: str = "") -> None:
         row = QHBoxLayout()
-        label = QLabel(title.upper())
+        label = QLabel(tr(title))
         label.setObjectName("section")
         row.addWidget(label)
         row.addStretch()

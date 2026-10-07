@@ -75,6 +75,14 @@ APP_CODEX_BINS = [
     "/Applications/ChatGPT.app/Contents/Resources/codex",
     "/Applications/Codex.app/Contents/Resources/codex",
 ]
+if os.name == "nt":
+    _local_app_data = os.environ.get("LOCALAPPDATA", "")
+    _program_files = os.environ.get("PROGRAMFILES", "")
+    APP_CODEX_BINS = [
+        os.path.join(_local_app_data, "OpenAI", "Codex", "bin", "codex.exe"),
+        *glob.glob(os.path.join(_local_app_data, "OpenAI", "Codex", "bin", "*", "codex.exe")),
+        os.path.join(_program_files, "OpenAI", "Codex", "codex.exe"),
+    ]
 CODEX_NOTIFICATION_WAV = "/Applications/ChatGPT.app/Contents/Resources/codex-notification.wav"
 
 DEFAULT_CONFIG = {

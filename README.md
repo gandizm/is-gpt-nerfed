@@ -92,8 +92,9 @@ First run:
 
 The UI can stay running in the tray. Passive scanning does not consume answers; an active Probe creates three
 temporary forks and uses three short answers. If the panel still says `Setup required` or shows `0/0` hooks, restart
-Codex completely and run `is-gpt-nerfed.exe doctor` from the same folder. The Windows port is currently English-only;
-the upstream macOS app supports Simplified Chinese.
+Codex completely and run `is-gpt-nerfed.exe doctor` from the same folder. The Windows port follows the Windows
+display language (Simplified Chinese on Chinese Windows, English otherwise) and reuses the upstream macOS panel wording
+and layout.
 
 ## Using it
 

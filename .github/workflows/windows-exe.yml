@@ -38,6 +38,8 @@ jobs:
         run: >-
           python -m PyInstaller --noconfirm --clean --onefile --windowed
           --name is-gpt-nerfed-ui --add-data "plugin;plugin"
+          --add-data "macos/Sources/IsGPTNerfed/Resources/zh-Hans.lproj/Localizable.strings;localization"
+          --add-data "macos/Resources;resources"
           windows/ui_launcher.py
 
       - name: Run Windows regression suite
