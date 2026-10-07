@@ -17,6 +17,8 @@ class PackagedMarketplaceTests(unittest.TestCase):
             manifest = root / "bundle/plugin/.codex-plugin/plugin.json"
             manifest.parent.mkdir(parents=True)
             manifest.write_text('{"name":"is-gpt-nerfed","hooks":{}}', encoding="utf-8")
+            script = root / "bundle/plugin/worker.py"
+            script.write_text("new worker", encoding="utf-8")
             with mock.patch.dict(os.environ, {"PLUGIN_ROOT": "", "CODEX_HOME": str(root / "codex"),
                                                "NERFED_HOME": str(root / "ledger")}), \
                     mock.patch.object(launcher.sys, "frozen", True, create=True), \
@@ -32,6 +34,9 @@ class PackagedMarketplaceTests(unittest.TestCase):
                 manifest.write_text('{"name":"is-gpt-nerfed","version":"new"}', encoding="utf-8")
                 launcher.bundled_plugin_root()
                 self.assertEqual(json.loads(installed.read_text())["version"], "new")
+                (target / "worker.py").write_text("overwritten by an old build", encoding="utf-8")
+                launcher.bundled_plugin_root()
+                self.assertEqual((target / "worker.py").read_text(), "new worker")
 
 
 @unittest.skipUnless(os.environ.get("NERFED_FROZEN_UI_TEST"), "No packaged UI supplied")

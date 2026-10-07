@@ -91,13 +91,20 @@ def bundled_plugin_root() -> Path:
             target.parent.mkdir(parents=True, exist_ok=True)
             # Do not overwrite platform-specific hook commands on every launch.
             digest = hashlib.sha256()
+            installed_matches = True
             for item in sorted(source.rglob("*")):
                 if item.is_file() and "__pycache__" not in item.parts:
-                    digest.update(item.relative_to(source).as_posix().encode())
-                    digest.update(item.read_bytes())
+                    relative = item.relative_to(source)
+                    contents = item.read_bytes()
+                    digest.update(relative.as_posix().encode())
+                    digest.update(contents)
+                    if relative.as_posix() not in ("plugin.json", ".codex-plugin/plugin.json"):
+                        installed = target / relative
+                        if not installed.is_file() or installed.read_bytes() != contents:
+                            installed_matches = False
             stamp = target / ".bundle-sha256"
             signature = digest.hexdigest()
-            if not stamp.is_file() or stamp.read_text() != signature:
+            if not installed_matches or not stamp.is_file() or stamp.read_text() != signature:
                 shutil.copytree(source, target, dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns("__pycache__"))
                 stamp.write_text(signature, encoding="utf-8")
