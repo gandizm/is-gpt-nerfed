@@ -76,6 +76,13 @@ Say yes when it asks to trust the hooks. Codex runs no hook you have not trusted
 Requires a Codex with plugin hooks (desktop app or CLI; tested on 0.154) and the system `python3`. `./uninstall.sh`
 removes everything.
 
+### Windows desktop build
+
+The Windows artifact contains `is-gpt-nerfed-ui.exe`, a PySide6 desktop/tray port of the macOS panel, and
+`is-gpt-nerfed.exe`, the command-line companion. Double-click the UI executable to open the panel; it shares the
+same Python backend, ledger and hook setup as the CLI. No separate Python installation is required for the packaged
+artifact.
+
 ## Using it
 
 The macOS interface supports English and Simplified Chinese, following the system's preferred languages with

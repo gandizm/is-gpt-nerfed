@@ -64,6 +64,12 @@ git clone https://github.com/kiyoakii/is-gpt-nerfed ~/is-gpt-nerfed && cd ~/is-g
 
 需要支持插件 hooks 的 Codex（桌面端或 CLI，已在 0.154 上测试）以及系统中的 `python3`。运行 `./uninstall.sh` 可卸载。
 
+### Windows 桌面版
+
+Windows 压缩包内有 `is-gpt-nerfed-ui.exe`：这是用 PySide6 移植的桌面/托盘界面，复用了 macOS 版的面板结构；
+另有 `is-gpt-nerfed.exe` 作为命令行工具。双击 UI 程序即可打开面板；打包版本不需要另装 Python，UI、CLI、Hook
+和账本使用同一套后端。
+
 ## 使用
 
 macOS 界面随系统语言显示为英语或简体中文，暂不支持的语言会显示为英语。程序生成的证据说明、检测进度和错误提示也会翻译。你自己的会话标题、模型名称、`high / xhigh / max` 等推理级别，以及无法识别的外部错误内容保持原样。本地记录、CLI 输出、通知和 ModelTrace 已校准的检测提示词不受界面语言影响。

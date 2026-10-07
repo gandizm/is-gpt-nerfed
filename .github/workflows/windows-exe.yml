@@ -24,20 +24,28 @@ jobs:
           python-version: "3.11"
 
       - name: Install build tool
-        run: python -m pip install --upgrade pip pyinstaller
+        run: python -m pip install --upgrade pip -r windows/requirements.txt
 
-      - name: Build executable
+      - name: Build command-line executable
         shell: pwsh
         run: >-
-          python -m PyInstaller --noconfirm --clean --onefile
+          python -m PyInstaller --noconfirm --clean --onefile --console
           --name is-gpt-nerfed --add-data "plugin;plugin"
           windows/nerfed_launcher.py
+
+      - name: Build Windows desktop UI executable
+        shell: pwsh
+        run: >-
+          python -m PyInstaller --noconfirm --clean --onefile --windowed
+          --name is-gpt-nerfed-ui --add-data "plugin;plugin"
+          windows/ui_launcher.py
 
       - name: Run Windows regression suite
         shell: pwsh
         run: |
           python -W ignore -m unittest discover -s tests
           .\dist\is-gpt-nerfed.exe selftest
+          python -m py_compile windows\ui.py windows\ui_launcher.py windows\nerfed_launcher.py
 
       - name: Package artifact
         shell: pwsh
@@ -45,9 +53,11 @@ jobs:
           $stage = "dist\package"
           New-Item -ItemType Directory -Force $stage | Out-Null
           Copy-Item "dist\is-gpt-nerfed.exe" "$stage\is-gpt-nerfed.exe"
+          Copy-Item "dist\is-gpt-nerfed-ui.exe" "$stage\is-gpt-nerfed-ui.exe"
           Copy-Item "LICENSE" "$stage\LICENSE"
           @"
-          Run is-gpt-nerfed.exe from PowerShell or Command Prompt.
+          Double-click is-gpt-nerfed-ui.exe to open the Windows desktop/tray panel.
+          Use is-gpt-nerfed.exe from PowerShell for diagnostics and CLI commands.
           The first command copies the bundled Codex plugin into your local Codex data directory.
           Example: .\is-gpt-nerfed.exe setup
           "@ | Set-Content "$stage\README-Windows.txt" -Encoding utf8
