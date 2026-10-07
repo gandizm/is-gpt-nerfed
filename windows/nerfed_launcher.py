@@ -93,4 +93,7 @@ def load_cli():
 
 if __name__ == "__main__":
     cli = load_cli()
-    raise SystemExit(cli.main())
+    args = sys.argv[1:]
+    if args and args[0] == cli.DGC_BIN:
+        args = args[1:]
+    raise SystemExit(cli.main(args))

@@ -48,6 +48,12 @@ jobs:
           python -W ignore -m unittest discover -s tests
           .\dist\is-gpt-nerfed.exe selftest
           python -m py_compile windows\ui.py windows\ui_launcher.py windows\nerfed_launcher.py
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $smoke = Start-Process -FilePath ".\dist\is-gpt-nerfed-ui.exe" -ArgumentList "--smoke-test", "dist/ui-smoke.json" -PassThru -Wait -WindowStyle Hidden
+          if ($smoke.ExitCode -ne 0 -or !(Test-Path "dist/ui-smoke.json")) { throw "Frozen UI smoke test failed" }
+          Get-Content "dist/ui-smoke.json"
+          $backend = Start-Process -FilePath ".\dist\is-gpt-nerfed-ui.exe" -ArgumentList "selftest" -PassThru -Wait -WindowStyle Hidden
+          if ($backend.ExitCode -ne 0) { throw "Windowed backend command failed" }
 
       - name: Package artifact
         shell: pwsh

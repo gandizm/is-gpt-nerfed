@@ -68,7 +68,8 @@ class AppServer:
         # byte outside it (cp936 on a Chinese Windows).
         self.proc = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, env=environ, text=True, bufsize=1,
-                                     encoding="utf-8", errors="replace")
+                                     encoding="utf-8", errors="replace",
+                                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
         self._write_lock = threading.Lock()
         self._cond = threading.Condition()
         self._next_id = 0

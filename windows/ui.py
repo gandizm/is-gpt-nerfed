@@ -263,12 +263,13 @@ class SettingsDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, cli: Any):
+    def __init__(self, cli: Any, auto_refresh: bool = True):
         super().__init__()
         self.backend = Backend(cli)
         self.snapshot: dict[str, Any] | None = None
         self.tasks: list[BackendTask] = []
         self.refreshing = False
+        self.installing = False
         self.setWindowTitle(tr("Is GPT nerfed?"))
         self.setMinimumSize(420, 600)
         self.resize(480, 780)
@@ -278,8 +279,9 @@ class MainWindow(QMainWindow):
         localize_widgets(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
-        self.timer.start(8000)
-        QTimer.singleShot(0, self.refresh)
+        if auto_refresh:
+            self.timer.start(8000)
+            QTimer.singleShot(0, self.refresh)
 
     @staticmethod
     def stylesheet() -> str:
@@ -528,6 +530,8 @@ class MainWindow(QMainWindow):
         row.addWidget(label, 1)
         if button and action:
             b = QPushButton(button)
+            if action == self.install:
+                b.setEnabled(not self.installing)
             b.clicked.connect(action)
             row.addWidget(b)
         self.body_layout.addWidget(frame)
@@ -659,7 +663,14 @@ class MainWindow(QMainWindow):
         task.start()
 
     def install(self) -> None:
-        self.start_task(["setup", "--trust-hooks"], self._action_done)
+        if self.installing:
+            return
+        self.installing = True
+        self.render_snapshot()
+        def finished(result: tuple[int, str, str]) -> None:
+            self.installing = False
+            self._action_done(result)
+        self.start_task(["setup", "--trust-hooks"], finished)
 
     def trust_hooks(self) -> None:
         self.start_task(["hooks", "trust"], self._action_done)
@@ -675,8 +686,8 @@ class MainWindow(QMainWindow):
 
     def _action_done(self, result: tuple[int, str, str]) -> None:
         code, output, error = result
-        if code != 0 and error:
-            QMessageBox.warning(self, "is-gpt-nerfed", error[-1200:])
+        if code != 0:
+            QMessageBox.warning(self, "is-gpt-nerfed", (error or output or tr("Failed"))[-1200:])
         self.refresh()
 
     def show_thread_details(self, thread: dict[str, Any]) -> None:
