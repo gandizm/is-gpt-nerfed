@@ -83,6 +83,18 @@ The Windows artifact contains `is-gpt-nerfed-ui.exe`, a PySide6 desktop/tray por
 same Python backend, ledger and hook setup as the CLI. No separate Python installation is required for the packaged
 artifact.
 
+First run:
+
+1. Extract the Windows archive and double-click `is-gpt-nerfed-ui.exe`.
+2. Click **Install** in the setup card. This registers the plugin with Codex and records hook trust.
+3. Fully quit and reopen Codex, then reopen the panel; Codex loads plugins and hooks at startup.
+4. Click **Probe** on an active session, or use **Probe** in the Fresh session card to check the default model.
+
+The UI can stay running in the tray. Passive scanning does not consume answers; an active Probe creates three
+temporary forks and uses three short answers. If the panel still says `Setup required` or shows `0/0` hooks, restart
+Codex completely and run `is-gpt-nerfed.exe doctor` from the same folder. The Windows port is currently English-only;
+the upstream macOS app supports Simplified Chinese.
+
 ## Using it
 
 The macOS interface supports English and Simplified Chinese, following the system's preferred languages with

@@ -3031,7 +3031,10 @@ def cmd_doctor(args) -> int:
     if bank_ok:
         import hashlib
         with open(BANK_PATH, "rb") as f:
-            digest = hashlib.sha256(f.read()).hexdigest()
+            # Git may check this JSON out with CRLF on Windows.  The
+            # provenance hash is for the canonical LF source, so normalize
+            # line endings before validating the bundled bank.
+            digest = hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
         bank_ok = digest == prov.get("sha256")
     check(bank_ok, f"ModelTrace bank {'sha256 matches provenance' if bank_ok else 'missing or modified'} ({len(prov.get('models') or [])} models)")
     mps = manifest_paths()

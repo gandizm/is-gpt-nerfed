@@ -70,6 +70,17 @@ Windows 压缩包内有 `is-gpt-nerfed-ui.exe`：这是用 PySide6 移植的桌�
 另有 `is-gpt-nerfed.exe` 作为命令行工具。双击 UI 程序即可打开面板；打包版本不需要另装 Python，UI、CLI、Hook
 和账本使用同一套后端。
 
+首次使用：
+
+1. 解压 Windows 压缩包，双击 `is-gpt-nerfed-ui.exe`。
+2. 面板出现“需要安装”时点击 **Install**。这会把插件注册到 Codex，并记录 Hook 信任。
+3. 完全退出并重新打开 Codex，再重新打开面板；Codex 只有启动时才会加载插件和 Hook。
+4. 在“近期会话”中点击 **Probe** 检测某个会话，或在“新会话”区域点击 **Probe** 检测当前默认模型。
+
+检测完成后，UI 可以继续放在托盘中运行。被动扫描不消耗回答；主动 Probe 会创建 3 个临时副本并消耗 3 次简短回答。
+如果面板仍显示 `Setup required` 或 Hook 为 `0/0`，先确认 Codex 已完全重启，再运行同目录下的
+`is-gpt-nerfed.exe doctor` 查看原因。当前 Windows 移植版界面暂时只有英文；上游 macOS 应用支持简体中文。
+
 ## 使用
 
 macOS 界面随系统语言显示为英语或简体中文，暂不支持的语言会显示为英语。程序生成的证据说明、检测进度和错误提示也会翻译。你自己的会话标题、模型名称、`high / xhigh / max` 等推理级别，以及无法识别的外部错误内容保持原样。本地记录、CLI 输出、通知和 ModelTrace 已校准的检测提示词不受界面语言影响。

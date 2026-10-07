@@ -410,18 +410,25 @@ class MainWindow(QMainWindow):
     def render_snapshot(self) -> None:
         snap = self.snapshot or {}
         overall = value(snap, "overall", {})
+        install = value(snap, "install", {})
+        hooks = value(snap, "hooks", {})
         color = status_color(snap)
         self.face.setText("(ಠ_ಠ)" if value(overall, "downgraded", 0) else "(•_•)" if value(overall, "suspicious", 0) else "(•ᴗ•)")
         self.face.setStyleSheet(f"color: {color};")
-        self.status.setText(str(value(overall, "message", "all clear")))
-        self.status.setStyleSheet(f"color: {color};")
+        setup_status = None
+        if value(install, "codex_found") is False:
+            setup_status = ("Codex not found", "#c77700")
+        elif value(install, "plugin_enabled") is False or value(hooks, "state") == "missing":
+            setup_status = ("Setup required", "#c77700")
+        elif value(hooks, "state") == "untrusted":
+            setup_status = ("Trust hooks required", "#c77700")
+        self.status.setText(setup_status[0] if setup_status else str(value(overall, "message", "all clear")))
+        self.status.setStyleSheet(f"color: {setup_status[1] if setup_status else color};")
         self.message.setText(self._status_detail(snap))
         self.hooks.setText(self._hooks_text(snap))
         self.footer.setText(f"v{value(snap, 'version', '?')} · Last refresh {value(snap, 'generated', '')}")
 
         self._clear_body()
-        install = value(snap, "install", {})
-        hooks = value(snap, "hooks", {})
         if value(install, "codex_found") is False:
             self._add_setup("Codex was not found on this Windows installation.", None)
         elif value(install, "plugin_enabled") is False or value(hooks, "state") == "missing":
